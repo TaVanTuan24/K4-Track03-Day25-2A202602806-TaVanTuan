@@ -1,6 +1,6 @@
 # Lab 25B — Report
 
-**Họ tên / nhóm:** Tạ Văn Tuấn — MSV 2A202602806  **Commit:** `a2bd376d1da1d7793028019c5e45e6726dabd012` (commit chứa toàn bộ code đã kiểm thử; báo cáo này được commit ngay sau đó nên hash ở trên là hash *code*, không phải hash của chính file này)  **Điểm tự động (`make grade`):** 84 / 88 (4 điểm còn lại là bộ dữ liệu SLO ẩn của giảng viên — xem mục 5)
+**Họ tên / nhóm:** Tạ Văn Tuấn — MSV 2A202602806  **Commit:** `c00ca77eae9b0a853c12229fb76a14a374282e89` (commit chứa toàn bộ code đã kiểm thử; báo cáo này được commit ngay sau đó nên hash ở trên là hash *code*, không phải hash của chính file này)  **Điểm tự động (`make grade`):** 84 / 88 (4 điểm còn lại là bộ dữ liệu SLO ẩn của giảng viên — xem mục 5)
 
 > Mọi số trong báo cáo này lấy từ `reports/gameday/*.json`, `reports/cache/*.json`,
 > `reports/workflows.json`, `reports/slo.json` và `reports/experiments.json`
