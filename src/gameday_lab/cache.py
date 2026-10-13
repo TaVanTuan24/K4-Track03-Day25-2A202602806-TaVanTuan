@@ -108,14 +108,20 @@ class SemanticCache:
 
         * personal answers are never stored (they go stale in minutes and would
           leak one user's order/refund/points to another)
+        * an answer generated under a *different* prompt version than the request
+          is refused. The entry is tagged with the answer's version but its
+          embedding belongs to the request's version, so filing it would let a
+          later lookup match a question across scopes — the ``old_prompt``
+          failure mode. Neither version is safe to file it under: the next
+          request for that question simply regenerates it.
         * an entry in the same scope that is already similar *is* the same
           question: replace it (refresh the TTL) instead of piling up duplicates
         * bounded size: evict the least recently used entry
         """
-        if req.personal:
+        if req.personal or answer.prompt_version != req.prompt_version:
             return
         for entry in self.entries:
-            if entry.answer.prompt_version != answer.prompt_version:
+            if entry.answer.prompt_version != req.prompt_version:
                 continue
             if cosine(req.embedding, entry.embedding) >= self.similarity_threshold:
                 entry.embedding = req.embedding

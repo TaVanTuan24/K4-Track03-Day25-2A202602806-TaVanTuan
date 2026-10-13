@@ -123,6 +123,24 @@ class SlidingWindowBreaker:
             return Permit(self.name, self.generation, probe=True)
         return Permit(self.name, self.generation, probe=False)
 
+    def would_allow(self, now: float) -> bool:
+        """Read-only twin of ``allow``: would it hand out a permit at ``now``?
+
+        Used by callers that must decide *before* committing an expensive resource
+        whether a request can go out at all — e.g. the client spends a retry-budget
+        token only once it knows the retry will really be sent. Consumes nothing
+        (no probe slot, no state change), so it is safe to ask repeatedly.
+
+        Kept deliberately in step with ``allow``: OPEN admits once the cooldown has
+        elapsed (which is also the moment it would flip to HALF_OPEN, resetting the
+        probe count), HALF_OPEN admits only while probe slots remain, CLOSED always.
+        """
+        if self.state is BreakerState.OPEN:
+            return now - self.opened_at >= self.open_duration_s
+        if self.state is BreakerState.HALF_OPEN:
+            return self.probes_in_flight < self.half_open_max_probes
+        return True
+
     def on_success(self, permit: Permit, now: float, latency_s: float) -> None:
         """A granted request succeeded.
 

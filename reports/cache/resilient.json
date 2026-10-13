@@ -5,13 +5,13 @@
     "turns": 2808,
     "good_turns": 2351,
     "availability": 0.8373,
-    "latency_p50_s": 1.677,
+    "latency_p50_s": 1.678,
     "latency_p95_s": 3.577,
     "latency_p99_s": 4.477,
     "calls": 3711,
     "attempts": 3352,
     "amplification": 0.903,
-    "retry_ratio": 0.006,
+    "retry_ratio": 0.007,
     "attempts_by_provider": {
       "alpha": 3280,
       "alpha-eu": 26,
@@ -47,6 +47,6 @@
       "cache_hit_ratio_min": false
     },
     "pass": false,
-    "runtime_s": 0.16
+    "runtime_s": 0.19
   }
 }

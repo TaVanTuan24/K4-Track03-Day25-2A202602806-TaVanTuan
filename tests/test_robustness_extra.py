@@ -344,6 +344,167 @@ def test_retry_budget_can_stop_same_provider_retries_entirely() -> None:
     assert isinstance(action, Send) and action.provider == "alpha-eu"  # failover, not retry
 
 
+def test_rate_limits_never_open_the_breaker() -> None:
+    """A 429 is our tenant over its limit, not the provider being unhealthy.
+
+    Counting it as a failure would open the breaker on a *healthy* deployment and
+    take capacity away exactly when traffic is highest (G1/G2).
+    """
+    c = _client()
+    for i in range(30):
+        now = float(i)
+        call = CallContext(i, i, "tool", now, now + 30.0)
+        send = c.start(call, now)
+        assert isinstance(send, Send) and send.provider == "alpha"
+        c.on_error(Attempt(call, "alpha", 1, now, send.tag),
+                   ProviderError("alpha", 429, "rate_limit_exceeded", retry_after=0.5), now + 0.1)
+    assert c.breakers["alpha"].state is BreakerState.CLOSED
+    assert len(c.breakers["alpha"]._window) == 0, "a rate limit was recorded as a health signal"
+
+
+def test_quota_exhaustion_never_opens_the_breaker_either() -> None:
+    """Billing state is not provider health: a quota 429 must not trip the breaker.
+
+    The quota cooldown (minutes) cascades across the ladder until every provider is
+    out of credit, at which point the call gives up cleanly — with every breaker
+    still CLOSED and no provider blamed for a billing problem.
+    """
+    c = _client()
+    gave_up = 0
+    for i in range(30):
+        now = float(i)
+        call = CallContext(i, i, "tool", now, now + 30.0)
+        action = c.start(call, now)
+        if isinstance(action, GiveUp):
+            gave_up += 1
+            continue
+        assert isinstance(action, Send)
+        c.on_error(Attempt(call, action.provider, 1, now, action.tag),
+                   ProviderError(action.provider, 429, "insufficient_quota"), now + 0.1)
+        # the quota cooldown is long, and it is set from the moment of the error
+        assert c.cooldown_until[action.provider] == pytest.approx(now + 0.1 + c.quota_cooldown_s)
+    assert gave_up > 0, "an all-quota-exhausted ladder should give up rather than retry"
+    assert all(b.state is BreakerState.CLOSED for b in c.breakers.values())
+    assert all(len(b._window) == 0 for b in c.breakers.values()), "quota was recorded as a health signal"
+
+
+def test_a_call_may_wait_out_a_second_short_cooldown() -> None:
+    """Waiting once and then giving up drops a user for no reason.
+
+    Every deployment gets rate-limited, call A waits out the shortest cooldown and
+    is sent — then *that* attempt is rate-limited too. A must be allowed to wait
+    again (the deadline is the real bound), not handed GiveUp.
+    """
+    c = _client()
+    # three calls, each rate-limited by the next deployment down the ladder
+    for i, retry_after in enumerate((2.0, 6.0, 6.0)):
+        other = _call(cid=10 + i, now=0.0, deadline=30.0)
+        send = c.start(other, 0.0)
+        assert isinstance(send, Send)
+        c.on_error(Attempt(other, send.provider, 1, 0.0, send.tag),
+                   ProviderError(send.provider, 429, "rate_limit_exceeded", retry_after=retry_after), 0.0)
+    assert c.cooldown_until["alpha"] == pytest.approx(2.0)
+    assert c.cooldown_until["alpha-eu"] == pytest.approx(6.0)
+    assert c.cooldown_until["beta"] == pytest.approx(6.0)
+
+    a = _call(cid=99, now=0.5, deadline=30.0)
+    first = c.start(a, 0.5)
+    assert isinstance(first, Send) and first.provider == "alpha"
+    assert first.delay_s == pytest.approx(1.5)  # first wait: clears alpha's cooldown
+    # alpha rate-limits A again at t=2.0, and alpha-eu/beta are still cooling
+    second = c.on_error(Attempt(a, "alpha", 2, 2.0, first.tag),
+                        ProviderError("alpha", 429, "rate_limit_exceeded", retry_after=2.0), 2.0)
+    assert isinstance(second, Send) and second.provider == "alpha"
+    assert second.delay_s == pytest.approx(2.0), f"second wait was refused: {second!r}"
+
+
+def test_a_cooling_probe_saturated_ladder_gives_up_instead_of_spinning() -> None:
+    """Guard the spin risk: a provider can be cooling down *and* unable to admit us.
+
+    A HALF_OPEN deployment whose probe slots are all taken still carries a
+    rate-limit cooldown, so it looks waitable; asking it would refuse the permit.
+    It must be filtered out of the wait candidates, or the wait loop could spin on
+    a provider that never becomes sendable.
+    """
+    c = _client()
+    tool_capable = ("alpha", "alpha-eu", "beta")
+    for name in tool_capable:
+        b = c.breakers[name]
+        for _ in range(5):
+            p = b.allow(0.0)
+            assert p is not None
+            b.on_failure(p, 0.0)
+        assert b.state is BreakerState.OPEN
+    # at t=20 every open period has elapsed: each deployment's single probe is taken
+    for i, name in enumerate(tool_capable):
+        call = _call(cid=200 + i, now=20.0, deadline=50.0)
+        action = c.start(call, 20.0)
+        assert isinstance(action, Send) and action.provider == name, action
+        assert c.breakers[name].probes_in_flight == 1
+    # ... and each also has a live rate-limit cooldown, so all three look waitable
+    for name in tool_capable:
+        c.cooldown_until[name] = 25.0
+    stuck = _call(cid=300, now=21.0, deadline=51.0)
+    assert c._earliest_usable(stuck, c.ladder("tool"), 21.0) == (None, 0.0)
+    assert isinstance(c.start(stuck, 21.0), GiveUp)  # terminates: no spin
+
+
+def test_transient_retry_does_not_bypass_a_cooldown_set_by_another_call() -> None:
+    """A same-provider retry must re-check the *shared* cooldown at send time.
+
+    Call A is already in flight to `alpha` when call B is rate-limited by the same
+    deployment. A must not be sent back into a provider the client already knows is
+    rate-limited: that attempt would almost certainly be rejected too, so it only
+    burns a retry token, an attempt (amplification) and the user's deadline.
+    """
+    c = _client()
+    # A goes out to alpha first, while alpha is still healthy ...
+    a = _call(cid=1, now=0.0, deadline=30.0)
+    a_send = c.start(a, 0.0)
+    assert isinstance(a_send, Send) and a_send.provider == "alpha"
+    # ... then another call gets a 429 from alpha with a 5 s retry-after.
+    b = _call(cid=2, now=0.0, deadline=30.0)
+    b_send = c.start(b, 0.0)
+    assert isinstance(b_send, Send) and b_send.provider == "alpha"
+    c.on_error(Attempt(b, "alpha", 1, 0.0, b_send.tag),
+               ProviderError("alpha", 429, "rate_limit_exceeded", retry_after=5.0), 0.0)
+    assert c.cooldown_until["alpha"] == pytest.approx(5.0)
+    # A now fails transiently: its retry must skip alpha while the cooldown holds.
+    action = c.on_error(Attempt(a, "alpha", 1, 0.1, a_send.tag),
+                        ProviderError("alpha", 529, "overloaded_error"), 0.1)
+    assert not (isinstance(action, Send) and action.provider == "alpha"), \
+        f"retried alpha inside its rate-limit cooldown: {action!r}"
+    assert isinstance(action, Send) and action.provider == "alpha-eu"
+
+
+def test_retry_budget_is_not_drained_by_a_retry_the_breaker_refuses() -> None:
+    """A token may only be spent on a retry that is really sent.
+
+    If the failure that just arrived tripped the breaker, the same-provider retry
+    cannot go out. Charging the budget for it would silently shrink the budget
+    available to retries that *could* help — the exact opposite of the budget's job.
+    """
+    c = _client(retry_budget_ratio=0.0, retry_budget_min_per_s=0.0, retry_budget_max_tokens=10.0)
+    in_flight: list[tuple[CallContext, Send]] = []
+    for i in range(6):
+        call = _call(cid=100 + i, now=0.0, deadline=30.0)
+        send = c.start(call, 0.0)
+        assert isinstance(send, Send) and send.provider == "alpha"
+        in_flight.append((call, send))
+    # five failures trip alpha's breaker (min_calls = 5)
+    for call, send in in_flight[:5]:
+        c.on_error(Attempt(call, "alpha", 1, 1.0, send.tag),
+                   ProviderError("alpha", 500, "api_error"), 1.0)
+    assert c.breakers["alpha"].state is BreakerState.OPEN
+    tokens_before = c.budget.tokens
+    call, send = in_flight[5]
+    action = c.on_error(Attempt(call, "alpha", 1, 1.1, send.tag),
+                        ProviderError("alpha", 500, "api_error"), 1.1)
+    assert c.budget.tokens == pytest.approx(tokens_before), "budget charged for a refused retry"
+    # and the call still moves on instead of failing
+    assert isinstance(action, Send) and action.provider == "alpha-eu"
+
+
 # --------------------------------------------------------------------- Part G
 def _req(emb: tuple[float, ...], *, user: str = "u1", personal: bool = False, version: str = "v1") -> Request:
     return Request("q", user, personal, version, emb)
@@ -416,6 +577,69 @@ def test_personal_question_is_never_stored_or_served() -> None:
     assert c.entries == []
     c.store(_req((1.0, 0.0, 0.0)), _answer(), 0.0)
     assert c.lookup(_req((1.0, 0.0, 0.0), personal=True, user="u2"), 1.0) is None
+
+
+def test_store_refuses_an_answer_from_a_different_prompt_version() -> None:
+    """An entry's scope tag and its embedding must come from the same prompt version.
+
+    Tagging the entry with the *answer's* version while keeping the *request's*
+    embedding lets a later lookup match a question across scopes. Such an answer is
+    safe for neither version, so it is not cached at all.
+    """
+    c = SemanticCache(similarity_threshold=0.9, ttl_s=600, max_stale_s=600, max_entries=10)
+    c.store(_req((1.0, 0.0, 0.0), version="v1"), _answer("v2"), 0.0)
+    assert c.entries == [], "a cross-scope answer was cached"
+    assert c.lookup(_req((1.0, 0.0, 0.0), version="v1"), 1.0) is None
+    assert c.lookup(_req((1.0, 0.0, 0.0), version="v2"), 1.0) is None
+    # the matching pair still caches, so legitimate traffic loses nothing
+    c.store(_req((1.0, 0.0, 0.0), version="v2"), _answer("v2"), 1.0)
+    hit = c.lookup(_req((1.0, 0.0, 0.0), version="v2"), 2.0)
+    assert hit is not None and hit.answer.prompt_version == "v2"
+
+
+def test_late_answer_after_a_prompt_deploy_stays_in_its_own_scope() -> None:
+    """A v1 answer that arrives after the world moved to v2 must not serve v2 traffic."""
+    cc, _inner = _caching(ttl=600.0, stale=600.0)
+    c1 = CallContext(1, 1, "chat", 0.0, 30.0, request=_req((1.0, 0.0, 0.0), version="v1"))
+    assert isinstance(cc.start(c1, 0.0), Send)
+    c1.answer = _answer("v1")
+    cc.on_success(Attempt(c1, "alpha", 1, 0.0, None), 5.0, 5.0)
+    # v2 traffic must go to the provider, not be answered from the v1 entry
+    c2 = CallContext(2, 2, "chat", 6.0, 36.0, request=_req((1.0, 0.0, 0.0), version="v2"))
+    assert isinstance(cc.start(c2, 6.0), Send), "a v1 answer leaked into the v2 scope"
+    # the v1 entry is still perfectly usable for v1 traffic
+    c3 = CallContext(3, 3, "chat", 7.0, 37.0, request=_req((1.0, 0.0, 0.0), version="v1"))
+    action = cc.start(c3, 7.0)
+    assert isinstance(action, Serve) and action.answer.prompt_version == "v1" and not action.stale
+
+
+def test_invalidation_during_an_inflight_call_does_not_resurrect_the_entry() -> None:
+    """The webhook fires while a provider request is in flight for that document.
+
+    The replacement answer produced after the change is what may be cached; the
+    pre-change entry must be gone for good, including on the stale-if-error path.
+    """
+    cc, inner = _caching(ttl=60.0, stale=600.0)
+    old = _answer(sources=("policy/refund",))
+    c1 = CallContext(1, 1, "chat", 0.0, 30.0, request=_req((1.0, 0.0, 0.0)))
+    assert isinstance(cc.start(c1, 0.0), Send)
+    c1.answer = old
+    cc.on_success(Attempt(c1, "alpha", 1, 0.0, None), 1.0, 1.0)
+    # TTL has expired, so the next call revalidates against the provider ...
+    c2 = CallContext(2, 2, "chat", 100.0, 130.0, request=_req((1.0, 0.0, 0.0)))
+    assert isinstance(cc.start(c2, 100.0), Send)
+    # ... and the document changes while that request is still in flight
+    cc.on_content_update("policy/refund", 100.5)
+    fresh = _answer(sources=("policy/refund",))
+    c2.answer = fresh
+    cc.on_success(Attempt(c2, "alpha", 1, 100.0, None), 101.0, 1.0)
+    served = cc.start(CallContext(3, 3, "chat", 105.0, 135.0, request=_req((1.0, 0.0, 0.0))), 105.0)
+    assert isinstance(served, Serve) and served.answer == fresh and served.answer != old
+    # even with every provider down, the invalidated answer must not come back
+    inner.next_action = GiveUp("no_provider_available")
+    stale = cc.start(CallContext(4, 4, "chat", 200.0, 230.0, request=_req((1.0, 0.0, 0.0))), 200.0)
+    assert isinstance(stale, Serve) and stale.answer == fresh and stale.answer != old
+    assert stale.stale is True
 
 
 class _StubInner(BaseClient):
@@ -511,6 +735,28 @@ def test_alerting_on_a_very_short_series_terminates_an_open_episode() -> None:
 
 def test_alerting_on_empty_data_is_empty() -> None:
     assert BurnRateAlerter().evaluate([], []) == []
+
+
+def test_an_episode_that_begins_at_the_start_of_the_data_is_reported_from_minute_zero() -> None:
+    """A window that runs off the start of the dataset must clip, not silently skip.
+
+    Without clipping, an incident already in progress at minute 0 is invisible
+    until the longest window fills up — the exact blind spot a hidden dataset that
+    starts mid-incident would expose.
+    """
+    total, bad = [1000] * 60, [1000] * 60  # total failure from the very first minute
+    events = BurnRateAlerter().evaluate(total, bad)
+    assert events
+    assert min(e.start_min for e in events) == 0
+    assert {e.rule for e in events} == {"fast_burn_2pct_1h", "slow_burn_5pct_6h", "budget_leak_10pct_3d"}
+
+
+def test_window_boundary_at_the_very_end_of_the_data() -> None:
+    total, bad = [1000] * 60, [0] * 59 + [1000]  # the last minute is the only bad one
+    a = BurnRateAlerter()
+    assert a.burn_rate(WindowSums(total), WindowSums(bad), 59, 1) == pytest.approx(200.0)
+    # a 5-minute short window ending on the last minute still sums only what exists
+    assert WindowSums(bad).sum(59, 5) == 1000
 
 
 def test_two_separate_incidents_produce_separate_events() -> None:

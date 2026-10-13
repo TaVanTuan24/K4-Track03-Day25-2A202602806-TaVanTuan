@@ -266,6 +266,8 @@ def main() -> None:
         out[name] = rows
         show(rows)
     Path(args.json).write_text(json.dumps(out, indent=2, default=str), encoding="utf-8")
+    # the override config is scratch: it is regenerated on every run
+    (ROOT / "reports" / "_experiment_gameday.yaml").unlink(missing_ok=True)
     print(f"\nwrote {args.json}")
 
 

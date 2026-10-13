@@ -107,10 +107,11 @@ class ResilientClient(BaseClient):
     def ladder(self, task: str) -> list[str]:
         """``self.order`` filtered by capability.
 
-        A ``"tool"`` call needs tool calling; ``gamma-mini`` does not have it, so
-        sending a tool call there returns a *successful* HTTP response whose body
-        is not a tool call at all (the simulator counts that as
-        ``incompatible_routes``). ``"chat"`` can use every deployment.
+        A ``"tool"`` call needs a deployment that supports tool calling; one that
+        does not still answers with HTTP 200, but the body is prose rather than a
+        tool call (the simulator counts that as ``incompatible_routes``).
+        ``"chat"`` can use every deployment. The filter is driven entirely by
+        ``ProviderInfo.supports_tools`` — no deployment name is baked in here.
         """
         if task == "tool":
             return [name for name in self.order if self.providers[name].supports_tools]
@@ -148,25 +149,35 @@ class ResilientClient(BaseClient):
             delay = 0.0
 
         call.state["idx"] = idx
-        if not call.state.pop("_waited_for_cooldown", False):
-            provider, wait = self._earliest_usable(call, ladder, now)
-            if provider is not None:
-                call.state["_waited_for_cooldown"] = True
-                call.state["idx"] = ladder.index(provider)
-                call.state["tries"] = 0
-                action = self._send(call, provider, now, wait)
-                if action is not None:
-                    return action
+        # Every ladder member was either cooling down or refused a permit. A short
+        # rate-limit cooldown is worth waiting out, and it is worth waiting out
+        # again later in the same call: a call that waited for `beta`, got a second
+        # 429 and gave up is a user we dropped for no reason. `_earliest_usable`
+        # admits only a wait that still leaves room for a real attempt inside the
+        # deadline, so repeats are bounded by the deadline and by how often a
+        # provider can be rate-limited — no per-call counter is needed.
+        provider, wait = self._earliest_usable(call, ladder, now)
+        if provider is not None:
+            call.state["idx"] = ladder.index(provider)
+            call.state["tries"] = 0
+            action = self._send(call, provider, now, wait)
+            if action is not None:  # always a Send: _earliest_usable checked the permit
+                return action
         return GiveUp("no_provider_available")
 
     def _earliest_usable(self, call: CallContext, ladder: list[str], now: float) -> tuple[str | None, float]:
-        """The ladder member that becomes sendable soonest, and how long to wait.
+        """The ladder member that becomes *sendable* soonest, and how long to wait.
 
         Only *short* waits are worth taking: a rate limit clears within ~1 s,
         whereas a quota cooldown is minutes and a provider that must still finish
         its own open period is not coming back in time — and a provider whose
         breaker is OPEN is exactly that case, so it is never a wait candidate.
         A tie goes to the earlier (more preferred) deployment.
+
+        ``would_allow`` is required as well as the cooldown, so the provider really
+        will hand out a permit at ``now``. Without it, a HALF_OPEN provider whose
+        probe slots are all taken would look waitable and then refuse, and the
+        caller could spin on it; with it, the ``_send`` that follows cannot fail.
         """
         best: tuple[float, int, str] | None = None
         for pos, provider in enumerate(ladder):
@@ -176,6 +187,8 @@ class ResilientClient(BaseClient):
             if not 0.0 < wait <= RATE_LIMIT_WAIT_MAX_S:
                 continue
             if now + wait + self.min_time_left_s > call.deadline:
+                continue
+            if not self.breakers[provider].would_allow(now):
                 continue
             candidate = (wait, pos, provider)
             if best is None or (wait, pos) < (best[0], best[1]):
@@ -248,14 +261,27 @@ class ResilientClient(BaseClient):
         call.state["tries"] = made
         if is_retryable(kind) and made < self.max_attempts_per_provider:
             delay = self.backoff.delay(made)
-            # Only spend budget on a retry that can actually finish inside the deadline.
-            if now + delay + self.min_time_left_s <= call.deadline and self.budget.try_acquire_retry(now):
+            # Prepare the retry only if it can actually go out at now + delay:
+            #   * it fits the caller's deadline;
+            #   * the provider is not cooling down — the cooldown is shared, so
+            #     another call may have rate-limited this deployment since our
+            #     attempt was sent, and retrying into it now would be rejected
+            #     again (and would waste the attempt);
+            #   * the breaker would still admit it — the failure we just recorded
+            #     may have been the one that tripped it;
+            #   * the retry budget still holds a token.
+            # The token is spent LAST, and only because the send is now certain,
+            # so a retry that cannot go out never drains the budget. After these
+            # gates `_send` cannot return None or GiveUp("deadline"), because
+            # would_allow mirrors allow() and the deadline test below is the same
+            # one _send performs.
+            if (now + delay + self.min_time_left_s <= call.deadline
+                    and self.cooldown_until.get(provider, 0.0) <= now + delay
+                    and self.breakers[provider].would_allow(now)
+                    and self.budget.try_acquire_retry(now)):
                 action = self._send(call, provider, now, delay)
-                if isinstance(action, Send):
+                if action is not None:  # always a Send here; None kept as a guard
                     return action
-                if isinstance(action, GiveUp):
-                    return action
-                # breaker refused the retry (it just opened): fall over instead
         if not failover_helps(kind):
             return GiveUp("not_retryable")
         return self._failover(call, now)

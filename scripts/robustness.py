@@ -148,6 +148,40 @@ def run_cache_probes() -> tuple[int, int]:
     return ok, total
 
 
+def run_traffic_probes() -> None:
+    """Vary the offered load itself (the one axis the other perturbations miss).
+
+    Reported per multiplier rather than as a single pass/fail, because a tape's
+    checks are calibrated to the traffic it was written for: at 2x the offered
+    rate the tape is no longer the same experiment, so a failure there is an
+    "assumption exceeded" result, not automatically a code defect. What must hold
+    at *every* level is the safety set — no retry-after violation, no retry of a
+    client error, no tool call routed to a model without tool support.
+    """
+    from dataclasses import replace
+
+    cfg = load_config(str(ROOT / "configs" / "gameday.yaml"), str(ROOT / "configs" / "scenarios.yaml"))
+    safety = ("retry_after_violations", "client_error_retries", "incompatible_routes")
+    for mult in (0.5, 1.0, 2.0):
+        tuned = replace(cfg, workload=replace(cfg.workload, turns_per_s=cfg.workload.turns_per_s * mult))
+        checked = passed = 0
+        bad_safety: list[str] = []
+        fails: dict[str, list[str]] = {}
+        for key, sc in tuned.scenarios.items():
+            m = run_scenario(tuned, key, build_client("resilient", tuned), 25).metrics()
+            checks = evaluate_checks(m, sc.checks)
+            checked += 1
+            if all(checks.values()):
+                passed += 1
+            else:
+                fails[key] = [k for k, v in checks.items() if not v]
+            bad_safety += [f"{key}:{f}={m[f]}" for f in safety if m.get(f)]
+        verdict = "OK" if not bad_safety else "SAFETY BROKEN " + ",".join(bad_safety)
+        print(f"  traffic x{mult:<4} {passed}/{checked} tapes PASS   safety: {verdict}")
+        for k, v in fails.items():
+            print(f"      {k}: {v}")
+
+
 def run_slo_probes() -> tuple[int, int]:
     """Hidden-SLO proxy: new seeds and a shifted/renamed incident schedule."""
     from dataclasses import replace
@@ -190,6 +224,13 @@ def main() -> None:
     run_resilient_probes()
     run_cache_probes()
     run_slo_probes()
+    print("offered-load sweep (G1-G6 at seed 25):")
+    run_traffic_probes()
+    # the perturbed tapes are scratch: they are regenerated identically each run
+    if PROBE.exists():
+        for f in PROBE.iterdir():
+            f.unlink()
+        PROBE.rmdir()
 
 
 if __name__ == "__main__":

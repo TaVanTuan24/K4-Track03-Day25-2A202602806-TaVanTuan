@@ -47,6 +47,6 @@
       "cache_hit_ratio_min": true
     },
     "pass": true,
-    "runtime_s": 0.33
+    "runtime_s": 0.37
   }
 }
