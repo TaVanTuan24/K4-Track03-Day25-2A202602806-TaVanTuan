@@ -21,21 +21,32 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from gameday_lab.workflows.runner import STEPS, RefundRequest  # noqa: F401  (STEPS: use it in run())
-from gameday_lab.workflows.services import DurableStore, ServiceError, Services, ServiceTimeout  # noqa: F401
+from gameday_lab.workflows.runner import STEPS, RefundRequest
+from gameday_lab.workflows.services import DurableStore, ServiceError, Services, ServiceTimeout
 
 T = TypeVar("T")
 
 
 def idempotency_key(req: RefundRequest, step: str) -> str:
-    """TODO(student): a key that is identical for every retry / restart of the same
-    side effect of the same session, and different across sessions and steps."""
-    raise NotImplementedError("TODO(student): idempotency_key()")
+    """A key that is identical for every retry / restart of the same side effect
+    of the same session, and different across sessions and steps.
+
+    Derived from *what we are doing* (session + step), never random: a retry
+    after a lost response, or a fresh worker resuming a crashed one, must present
+    the payment provider the exact same key so it de-duplicates the charge.
+    """
+    return f"refund-wf/{req.session_id}/{step}"
 
 
 def checkpoint_key(req: RefundRequest, step: str) -> str:
-    """TODO(student): DurableStore key under which the result of ``step`` is saved."""
-    raise NotImplementedError("TODO(student): checkpoint_key()")
+    """DurableStore key under which the result of ``step`` is saved.
+
+    A distinct namespace from the idempotency keys (``checkpoint/`` vs
+    ``refund-wf/``) so a step's stored *result* can never be mistaken for a
+    provider-side idempotency record, and one session's steps can never collide
+    with another session's.
+    """
+    return f"checkpoint/{req.session_id}/{step}"
 
 
 class WorkflowExecutor:
@@ -45,9 +56,21 @@ class WorkflowExecutor:
         self.max_attempts = max_attempts
 
     def _retry(self, fn: Callable[[], T]) -> T:
-        """TODO(student): call fn(); retry on ServiceError / ServiceTimeout up to
-        ``max_attempts`` times (re-raise the last one). Never catch WorkerCrash."""
-        raise NotImplementedError("TODO(student): _retry()")
+        """Call ``fn()``; retry on ServiceError / ServiceTimeout up to
+        ``max_attempts`` times (re-raise the last one).
+
+        Only the two *retryable* faults are caught. ``WorkerCrash`` inherits
+        BaseException and is deliberately not caught: this process is dead, and
+        the runner will start a fresh worker that must resume from checkpoints.
+        """
+        last: Exception | None = None
+        for _ in range(self.max_attempts):
+            try:
+                return fn()
+            except (ServiceError, ServiceTimeout) as exc:
+                last = exc
+        assert last is not None
+        raise last
 
     def _step(self, req: RefundRequest, state: dict[str, Any], step: str) -> Any:
         """PROVIDED: execute one step. ``state`` holds results of earlier steps."""
@@ -68,11 +91,26 @@ class WorkflowExecutor:
         raise ValueError(step)
 
     def run(self, req: RefundRequest) -> dict[str, Any]:
-        """TODO(student): run every step in STEPS for ``req``.
+        """Run every step of ``STEPS`` for ``req``, exactly once per effect.
 
-        * a step whose checkpoint already exists in ``self.store`` was done by a
-          previous (crashed) worker: load its result into ``state`` and skip it
-        * otherwise execute it with ``self._step`` and checkpoint the result
-        * return {"status": "done", **state}
+        For each step: if a checkpoint exists, a previous (possibly crashed)
+        worker already did it — load the stored result and skip. Otherwise run
+        the step and checkpoint its result *after* it returned.
+
+        The order is the whole point. Checkpointing *before* the side effect
+        would mark a payment as done that never happened (a lost refund); the
+        reverse means a crash between the effect and the checkpoint replays the
+        step, which is safe only because the step reuses its stable idempotency
+        key and the provider de-duplicates it.
         """
-        raise NotImplementedError("TODO(student): run()")
+        state: dict[str, Any] = {}
+        for step in STEPS:
+            key = checkpoint_key(req, step)
+            done = self.store.get(key)
+            if done is not None:
+                state[step] = done
+                continue
+            result = self._step(req, state, step)
+            self.store.put(key, result)  # only after the effect really happened
+            state[step] = result
+        return {"status": "done", **state}

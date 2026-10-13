@@ -26,14 +26,24 @@ class FullJitterBackoff:
         self.rng = rng or random.Random(0)
 
     def delay(self, retry_number: int, retry_after: float | None = None) -> float:
-        """TODO(student).
+        """Delay before retry ``retry_number`` (1-based).
 
-        * raise ValueError if retry_number < 1
-        * with retry_after:    retry_after + rng.uniform(0, base_s)
-        * without retry_after: rng.uniform(0, min(cap_s, base_s * 2 ** (retry_number - 1)))
-        Use ``self.rng`` (seeded) — never the global ``random`` module.
+        * ``retry_number < 1`` raises ValueError — there is no "0th retry".
+        * with ``retry_after``:  ``retry_after + rng.uniform(0, base_s)`` — the
+          peer told us when to come back, and the jitter makes sure we do not
+          come back at the *same instant* as every other client.
+        * without: full jitter over the exponential ceiling,
+          ``rng.uniform(0, min(cap_s, base_s * 2 ** (retry_number - 1)))``.
+
+        Uses ``self.rng`` (seeded) — never the global ``random`` module, so a
+        run is reproducible for a given seed.
         """
-        raise NotImplementedError("TODO(student): FullJitterBackoff.delay()")
+        if retry_number < 1:
+            raise ValueError("retry_number must be >= 1")
+        if retry_after is not None:
+            return float(retry_after) + self.rng.uniform(0.0, self.base_s)
+        ceiling = min(self.cap_s, self.base_s * 2 ** (retry_number - 1))
+        return self.rng.uniform(0.0, ceiling)
 
 
 class RetryBudget:
@@ -56,10 +66,29 @@ class RetryBudget:
         self.tokens = max_tokens
         self._last: float | None = None  # virtual time of the previous call
 
+    def _refill(self, now: float) -> None:
+        """Add ``min_per_s`` tokens per elapsed virtual second (capped at max_tokens).
+
+        Virtual time only moves forward, but guard against a caller that asks
+        with a non-increasing ``now``: nothing is refilled and ``_last`` never
+        moves backwards.
+        """
+        if self._last is None:
+            self._last = now
+            return
+        if now > self._last:
+            self.tokens = min(self.max_tokens, self.tokens + (now - self._last) * self.min_per_s)
+            self._last = now
+
     def record_request(self, now: float) -> None:
-        """TODO(student): refill by time elapsed since the previous call, then deposit ``ratio``."""
-        raise NotImplementedError("TODO(student): RetryBudget.record_request()")
+        """Refill by elapsed time, then deposit ``ratio`` tokens for one first attempt."""
+        self._refill(now)
+        self.tokens = min(self.max_tokens, self.tokens + self.ratio)
 
     def try_acquire_retry(self, now: float) -> bool:
-        """TODO(student): refill by time elapsed; if tokens >= 1, take one and return True."""
-        raise NotImplementedError("TODO(student): RetryBudget.try_acquire_retry()")
+        """Refill by elapsed time; if a whole token is available, take it and return True."""
+        self._refill(now)
+        if self.tokens >= 1.0:
+            self.tokens -= 1.0
+            return True
+        return False

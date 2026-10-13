@@ -1,0 +1,177 @@
+{
+  "naive": {
+    "pass": false,
+    "incidents": [
+      {
+        "incident": "checkout_bug",
+        "expect": "page",
+        "detected": true,
+        "delay_min": 1
+      },
+      {
+        "incident": "provider_outage",
+        "expect": "page",
+        "detected": true,
+        "delay_min": 0
+      },
+      {
+        "incident": "deploy_blip",
+        "expect": "none",
+        "paged": true
+      },
+      {
+        "incident": "slow_leak",
+        "expect": "ticket",
+        "detected": false,
+        "delay_min": null,
+        "paged_instead": false
+      },
+      {
+        "incident": "degraded_evening",
+        "expect": "page",
+        "detected": true,
+        "delay_min": 214
+      },
+      {
+        "incident": "night_spike",
+        "expect": "none",
+        "paged": true
+      },
+      {
+        "incident": "small_bump",
+        "expect": "none",
+        "paged": true
+      }
+    ],
+    "pages": 7,
+    "tickets": 0,
+    "false_pages": 3,
+    "events": [
+      {
+        "rule": "error_ratio_5m",
+        "severity": "page",
+        "start_min": 3481,
+        "end_min": 3528
+      },
+      {
+        "rule": "error_ratio_5m",
+        "severity": "page",
+        "start_min": 8760,
+        "end_min": 8774
+      },
+      {
+        "rule": "error_ratio_5m",
+        "severity": "page",
+        "start_min": 15240,
+        "end_min": 15248
+      },
+      {
+        "rule": "error_ratio_5m",
+        "severity": "page",
+        "start_min": 30214,
+        "end_min": 30215
+      },
+      {
+        "rule": "error_ratio_5m",
+        "severity": "page",
+        "start_min": 30341,
+        "end_min": 30342
+      },
+      {
+        "rule": "error_ratio_5m",
+        "severity": "page",
+        "start_min": 34740,
+        "end_min": 34747
+      },
+      {
+        "rule": "error_ratio_5m",
+        "severity": "page",
+        "start_min": 39542,
+        "end_min": 39563
+      }
+    ]
+  },
+  "burnrate": {
+    "pass": true,
+    "incidents": [
+      {
+        "incident": "checkout_bug",
+        "expect": "page",
+        "detected": true,
+        "delay_min": 27
+      },
+      {
+        "incident": "provider_outage",
+        "expect": "page",
+        "detected": true,
+        "delay_min": 4
+      },
+      {
+        "incident": "deploy_blip",
+        "expect": "none",
+        "paged": false
+      },
+      {
+        "incident": "slow_leak",
+        "expect": "ticket",
+        "detected": true,
+        "delay_min": 1337,
+        "paged_instead": false
+      },
+      {
+        "incident": "degraded_evening",
+        "expect": "page",
+        "detected": true,
+        "delay_min": 291
+      },
+      {
+        "incident": "night_spike",
+        "expect": "none",
+        "paged": false
+      },
+      {
+        "incident": "small_bump",
+        "expect": "none",
+        "paged": false
+      }
+    ],
+    "pages": 3,
+    "tickets": 1,
+    "false_pages": 0,
+    "events": [
+      {
+        "rule": "fast_burn_2pct_1h",
+        "severity": "page",
+        "start_min": 3507,
+        "end_min": 3527
+      },
+      {
+        "rule": "fast_burn_2pct_1h",
+        "severity": "page",
+        "start_min": 8764,
+        "end_min": 8774
+      },
+      {
+        "rule": "budget_leak_10pct_3d",
+        "severity": "ticket",
+        "start_min": 22037,
+        "end_min": 23794
+      },
+      {
+        "rule": "slow_burn_5pct_6h",
+        "severity": "page",
+        "start_min": 30291,
+        "end_min": 30368
+      }
+    ],
+    "budget": {
+      "requests": 25901755.0,
+      "allowed_bad": 129508.8,
+      "bad": 55618.0,
+      "availability": 0.997853,
+      "budget_consumed": 0.4295,
+      "budget_remaining": 0.5705,
+      "freeze_releases": false
+    }
+  }
+}

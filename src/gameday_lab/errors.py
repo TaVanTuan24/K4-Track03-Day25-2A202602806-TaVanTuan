@@ -25,43 +25,55 @@ class ErrorKind(str, Enum):
 def classify(err: ProviderError) -> ErrorKind:
     """Map a provider error to an ErrorKind.
 
-    TODO(student). Rules:
+    Rules:
     * status 0 (client gave up) or 408                  -> TIMEOUT
     * 429 with code "insufficient_quota"                -> QUOTA_EXHAUSTED
     * any other 429                                     -> RATE_LIMITED
     * 503, 529                                          -> OVERLOADED
     * other 5xx                                         -> SERVER_ERROR
     * everything else (4xx)                             -> CLIENT_ERROR
-    Look at ``err.status`` and ``err.code``.
+    Looks at ``err.status`` and ``err.code``.
+
+    Order matters: the timeout and 429 checks come first so that a 429 would
+    never be mistaken for a generic error, and a 408 is a timeout even though
+    it is technically a 4xx.
     """
-    raise NotImplementedError("TODO(student): classify()")
+    if err.status in (0, 408):
+        return ErrorKind.TIMEOUT
+    if err.status == 429:
+        return ErrorKind.QUOTA_EXHAUSTED if err.code == "insufficient_quota" else ErrorKind.RATE_LIMITED
+    if err.status in (503, 529):
+        return ErrorKind.OVERLOADED
+    if 500 <= err.status < 600:
+        return ErrorKind.SERVER_ERROR
+    return ErrorKind.CLIENT_ERROR
 
 
 def is_retryable(kind: ErrorKind) -> bool:
     """May we try *the same provider* again for this call (after a delay)?
 
-    TODO(student). Retryable: RATE_LIMITED (after retry-after), OVERLOADED,
-    SERVER_ERROR, TIMEOUT. Not retryable: QUOTA_EXHAUSTED, CLIENT_ERROR.
+    Retryable: RATE_LIMITED (after retry-after), OVERLOADED, SERVER_ERROR,
+    TIMEOUT. Not retryable: QUOTA_EXHAUSTED (more attempts only burn the
+    account), CLIENT_ERROR (the request itself is wrong).
     """
-    raise NotImplementedError("TODO(student): is_retryable()")
+    return kind in (ErrorKind.RATE_LIMITED, ErrorKind.OVERLOADED, ErrorKind.SERVER_ERROR, ErrorKind.TIMEOUT)
 
 
 def counts_toward_breaker(kind: ErrorKind) -> bool:
     """Does this error say something about the *health* of the provider?
 
-    TODO(student).
     Yes: OVERLOADED, SERVER_ERROR, TIMEOUT.
     No:  RATE_LIMITED (our quota, handled by a cooldown), QUOTA_EXHAUSTED (billing,
          handled by a cooldown + alert), CLIENT_ERROR (our bug — every provider
          would reject it, so it must never open a breaker).
     """
-    raise NotImplementedError("TODO(student): counts_toward_breaker()")
+    return kind in (ErrorKind.OVERLOADED, ErrorKind.SERVER_ERROR, ErrorKind.TIMEOUT)
 
 
 def failover_helps(kind: ErrorKind) -> bool:
     """Would sending the same request to *another* provider help?
 
-    TODO(student). Everything except CLIENT_ERROR: a malformed request is
-    malformed everywhere.
+    Everything except CLIENT_ERROR: a malformed request is malformed everywhere,
+    so failing over would just repeat the same rejection on another deployment.
     """
-    raise NotImplementedError("TODO(student): failover_helps()")
+    return kind is not ErrorKind.CLIENT_ERROR

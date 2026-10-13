@@ -1,0 +1,48 @@
+{
+  "naive": {
+    "sessions": 500,
+    "completed": 500,
+    "completion_rate": 1.0,
+    "worker_crashes": 81,
+    "failed": {},
+    "duplicate_refunds": 128,
+    "duplicate_emails": 81,
+    "lost_refunds": 0,
+    "overpaid_cents": 1496700,
+    "payments_executions": 628,
+    "wasted_llm_calls": 91,
+    "wasted_llm_per_crash": 1.123,
+    "store_writes": 0,
+    "checks": {
+      "duplicate_refunds_max": false,
+      "duplicate_emails_max": false,
+      "lost_refunds_max": true,
+      "completion_rate_min": true,
+      "wasted_llm_per_crash_max": false
+    },
+    "pass": false
+  },
+  "yours": {
+    "sessions": 500,
+    "completed": 500,
+    "completion_rate": 1.0,
+    "worker_crashes": 66,
+    "failed": {},
+    "duplicate_refunds": 0,
+    "duplicate_emails": 0,
+    "lost_refunds": 0,
+    "overpaid_cents": 0,
+    "payments_executions": 500,
+    "wasted_llm_calls": 20,
+    "wasted_llm_per_crash": 0.303,
+    "store_writes": 2500,
+    "checks": {
+      "duplicate_refunds_max": true,
+      "duplicate_emails_max": true,
+      "lost_refunds_max": true,
+      "completion_rate_min": true,
+      "wasted_llm_per_crash_max": true
+    },
+    "pass": true
+  }
+}

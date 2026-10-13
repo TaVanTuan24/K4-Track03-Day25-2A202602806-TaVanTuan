@@ -1,0 +1,305 @@
+{
+  "unit_tests": {
+    "tests/test_errors_retry.py": {
+      "part": "A",
+      "passed": 21,
+      "total": 21,
+      "points": 12.0,
+      "max": 12
+    },
+    "tests/test_breaker.py": {
+      "part": "B",
+      "passed": 13,
+      "total": 13,
+      "points": 12.0,
+      "max": 12
+    },
+    "tests/test_client.py": {
+      "part": "C",
+      "passed": 11,
+      "total": 11,
+      "points": 6.0,
+      "max": 6
+    },
+    "tests/test_executor.py": {
+      "part": "D",
+      "passed": 7,
+      "total": 7,
+      "points": 4.0,
+      "max": 4
+    },
+    "tests/test_alerting.py": {
+      "part": "E",
+      "passed": 7,
+      "total": 7,
+      "points": 4.0,
+      "max": 4
+    },
+    "tests/test_cache.py": {
+      "part": "G",
+      "passed": 17,
+      "total": 17,
+      "points": 4.0,
+      "max": 4
+    }
+  },
+  "gameday": {
+    "G1_rate_limit_spike": {
+      "pass": true,
+      "points": 4,
+      "max": 4,
+      "runs": [
+        {
+          "seed": 25,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 26,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 27,
+          "pass": true,
+          "failed": []
+        }
+      ]
+    },
+    "G2_overload_storm": {
+      "pass": true,
+      "points": 4,
+      "max": 4,
+      "runs": [
+        {
+          "seed": 25,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 26,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 27,
+          "pass": true,
+          "failed": []
+        }
+      ]
+    },
+    "G3_brownout": {
+      "pass": true,
+      "points": 4,
+      "max": 4,
+      "runs": [
+        {
+          "seed": 25,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 26,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 27,
+          "pass": true,
+          "failed": []
+        }
+      ]
+    },
+    "G4_slow_region": {
+      "pass": true,
+      "points": 4,
+      "max": 4,
+      "runs": [
+        {
+          "seed": 25,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 26,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 27,
+          "pass": true,
+          "failed": []
+        }
+      ]
+    },
+    "G5_bad_deploy_then_quota": {
+      "pass": true,
+      "points": 4,
+      "max": 4,
+      "runs": [
+        {
+          "seed": 25,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 26,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 27,
+          "pass": true,
+          "failed": []
+        }
+      ]
+    },
+    "G6_provider_outage": {
+      "pass": true,
+      "points": 4,
+      "max": 4,
+      "runs": [
+        {
+          "seed": 25,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 26,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 27,
+          "pass": true,
+          "failed": []
+        }
+      ]
+    }
+  },
+  "workflows": {
+    "pass": true,
+    "points": 8,
+    "max": 8,
+    "runs": [
+      {
+        "seed": 25,
+        "pass": true,
+        "duplicate_refunds": 0,
+        "duplicate_emails": 0,
+        "lost_refunds": 0,
+        "completion_rate": 1.0,
+        "wasted_llm_per_crash": 0.303
+      },
+      {
+        "seed": 26,
+        "pass": true,
+        "duplicate_refunds": 0,
+        "duplicate_emails": 0,
+        "lost_refunds": 0,
+        "completion_rate": 1.0,
+        "wasted_llm_per_crash": 0.241
+      },
+      {
+        "seed": 27,
+        "pass": true,
+        "duplicate_refunds": 0,
+        "duplicate_emails": 0,
+        "lost_refunds": 0,
+        "completion_rate": 1.0,
+        "wasted_llm_per_crash": 0.338
+      }
+    ]
+  },
+  "slo_public": {
+    "pass": true,
+    "points": 4,
+    "max": 4,
+    "false_pages": 0,
+    "incidents": [
+      {
+        "incident": "checkout_bug",
+        "expect": "page",
+        "detected": true,
+        "delay_min": 27
+      },
+      {
+        "incident": "provider_outage",
+        "expect": "page",
+        "detected": true,
+        "delay_min": 4
+      },
+      {
+        "incident": "deploy_blip",
+        "expect": "none",
+        "paged": false
+      },
+      {
+        "incident": "slow_leak",
+        "expect": "ticket",
+        "detected": true,
+        "delay_min": 1337,
+        "paged_instead": false
+      },
+      {
+        "incident": "degraded_evening",
+        "expect": "page",
+        "detected": true,
+        "delay_min": 291
+      },
+      {
+        "incident": "night_spike",
+        "expect": "none",
+        "paged": false
+      },
+      {
+        "incident": "small_bump",
+        "expect": "none",
+        "paged": false
+      }
+    ]
+  },
+  "cache_tape": {
+    "C1_faq_outage": {
+      "pass": true,
+      "points": 6,
+      "max": 6,
+      "runs": [
+        {
+          "seed": 25,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 26,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 27,
+          "pass": true,
+          "failed": []
+        }
+      ]
+    }
+  },
+  "slo_hidden": {
+    "pass": null,
+    "points": 0,
+    "max": 4,
+    "note": "graded by the instructor on a hidden dataset"
+  },
+  "summary": {
+    "parts": {
+      "A": 12.0,
+      "B": 12.0,
+      "C": 30.0,
+      "D": 12.0,
+      "E": 8.0,
+      "G": 10.0
+    },
+    "automatic": 84.0,
+    "automatic_max": 88,
+    "report_max": 12
+  }
+}

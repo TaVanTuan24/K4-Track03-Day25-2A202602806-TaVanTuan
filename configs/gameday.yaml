@@ -49,11 +49,19 @@ client:
 
 # ----------------------------------------------------------------------------
 # Part G: YOUR semantic cache settings (read by SemanticCache).
-# These starter values are deliberately naive: run `make cache`, read
-# wrong_answers_by_reason, tune each value and justify it in report section 8.
+# Tuned from `make cache` + the sensitivity sweep in scripts/experiments.py:
+#   * similarity_threshold 0.91 = midpoint of the measured gap between
+#     paraphrases of one FAQ intent (cosine >= 0.9507) and the closest pair of
+#     *different* intents (cosine <= 0.8731), so both error modes keep ~0.04.
+#   * ttl_s 30 bounds silently-changed documents: expected outdated serves are
+#     ~ shipping_serve_rate * ttl/2 (~6.5 of the 15 allowed), while still
+#     serving 59% of FAQ turns from cache.
+#   * max_stale_s 600 lets cacheable FAQ answers outlive a several-minute
+#     provider outage (stale-if-error) without ever being served to a
+#     personal/business question.
 # ----------------------------------------------------------------------------
 cache:
-  similarity_threshold: 0.80
-  ttl_s: 600
-  max_stale_s: 0
+  similarity_threshold: 0.91
+  ttl_s: 30
+  max_stale_s: 600
   max_entries: 500
