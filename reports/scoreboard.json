@@ -53,6 +53,16 @@
           "seed": 25,
           "pass": true,
           "failed": []
+        },
+        {
+          "seed": 26,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 27,
+          "pass": true,
+          "failed": []
         }
       ]
     },
@@ -63,6 +73,16 @@
       "runs": [
         {
           "seed": 25,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 26,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 27,
           "pass": true,
           "failed": []
         }
@@ -77,6 +97,16 @@
           "seed": 25,
           "pass": true,
           "failed": []
+        },
+        {
+          "seed": 26,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 27,
+          "pass": true,
+          "failed": []
         }
       ]
     },
@@ -87,6 +117,16 @@
       "runs": [
         {
           "seed": 25,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 26,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 27,
           "pass": true,
           "failed": []
         }
@@ -101,6 +141,16 @@
           "seed": 25,
           "pass": true,
           "failed": []
+        },
+        {
+          "seed": 26,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 27,
+          "pass": true,
+          "failed": []
         }
       ]
     },
@@ -111,6 +161,16 @@
       "runs": [
         {
           "seed": 25,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 26,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 27,
           "pass": true,
           "failed": []
         }
@@ -130,6 +190,24 @@
         "lost_refunds": 0,
         "completion_rate": 1.0,
         "wasted_llm_per_crash": 0.303
+      },
+      {
+        "seed": 26,
+        "pass": true,
+        "duplicate_refunds": 0,
+        "duplicate_emails": 0,
+        "lost_refunds": 0,
+        "completion_rate": 1.0,
+        "wasted_llm_per_crash": 0.241
+      },
+      {
+        "seed": 27,
+        "pass": true,
+        "duplicate_refunds": 0,
+        "duplicate_emails": 0,
+        "lost_refunds": 0,
+        "completion_rate": 1.0,
+        "wasted_llm_per_crash": 0.338
       }
     ]
   },
@@ -189,6 +267,16 @@
       "runs": [
         {
           "seed": 25,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 26,
+          "pass": true,
+          "failed": []
+        },
+        {
+          "seed": 27,
           "pass": true,
           "failed": []
         }
